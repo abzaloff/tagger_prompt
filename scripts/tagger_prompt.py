@@ -144,24 +144,6 @@ def _ensure_model_available(tagger_key: str, models_dir: str):
         _download_file(spec["files"][name], model_dir / name)
 
 
-def _model_missing_for_tagger(tagger_key: str, models_dir: str) -> bool:
-    spec = _MODEL_DOWNLOADS.get(tagger_key)
-    if spec is None:
-        return False
-    model_dir = Path(models_dir) / spec["folder"]
-    return any(not (model_dir / name).exists() for name in spec["files"])
-
-
-def _tagger_label(tagger_key: str) -> str:
-    labels = {
-        "wd14": "WD14",
-        "wd3": "WD3",
-        "ddb": "DDB",
-        "e621": "E621",
-    }
-    return labels.get(tagger_key, tagger_key.upper())
-
-
 def _build_tagger(tagger_key: str, models_dir: str):
     if not models_dir:
         raise RuntimeError("Models directory is not set. Go to Settings → Tagger Prompt and set it.")
@@ -243,6 +225,7 @@ class Script(scripts.Script):
         eid_sliders_row = f"tp_sliders_row_{ui_suffix}"
         eid_drop = f"tp_drop_{ui_suffix}"
         eid_preview = f"tp_preview_{ui_suffix}"
+        eid_status = f"tp_status_{ui_suffix}"
         eid_paste_btn = f"tp_paste_btn_{ui_suffix}"
         eid_paste_pipe = f"tp_paste_pipe_{ui_suffix}"
 
@@ -272,7 +255,7 @@ class Script(scripts.Script):
   }}
   #{eid_drop} label, #{eid_drop} .label, #{eid_drop} .upload-text, #{eid_drop} .filetype{{display:none!important;}}
   #{eid_drop}::after{{
-      content:"Drag an image here or click to choose one, or use “Paste from clipboard”";
+      content:"Drag an image here or click to choose one, or use \"Paste from clipboard\"";
       position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
       padding:0 14px; font-size:13.5px; font-weight:600; opacity:.95;
       border:1.5px dashed var(--block-border-color); border-radius:8px;
@@ -282,6 +265,7 @@ class Script(scripts.Script):
 
   #{eid_preview} {{ height: 180px !important; max-height:180px !important; overflow:hidden !important; }}
   #{eid_preview} img {{ height: 170px !important; max-height:170px !important; width:100% !important; object-fit:contain !important; }}
+  #{eid_status} {{ min-height: 1.2em; }}
 
   #{eid_sliders_row} {{ margin-top: 6px; }}
 </style>
@@ -378,9 +362,9 @@ class Script(scripts.Script):
             )
 
             preview = gr.Image(label="Preview", type="pil", height=170, elem_id=eid_preview, interactive=False)
-            status = gr.Markdown("Ready to work. Insert an image.")
             out_tags = gr.Textbox(label="Tags / Prompt", lines=4)
             send_btn = gr.Button("Insert into Prompt")
+            status = gr.Markdown("Ready to work. Insert an image.", elem_id=eid_status, visible=False)
 
             # Insert ONLY into active tab prompt + scroll to that prompt
             js_replace_prompt_and_scroll = r"""
@@ -433,16 +417,6 @@ class Script(scripts.Script):
                 }
             """
 
-            # clear ONLY this tab's file input (avoid touching other tab)
-            js_clear_file_frontend = f"""
-                () => {{
-                  const drop = document.querySelector('#{eid_drop}');
-                  if (!drop) return;
-                  const input = drop.querySelector('input[type="file"]');
-                  if (input) input.value = '';
-                }}
-            """
-
             def set_from_file(file_obj, current_pil):
                 if not file_obj:
                     if current_pil is None:
@@ -489,14 +463,6 @@ class Script(scripts.Script):
             def remove_image():
                 return None, None, "Image removed.", "", gr.update(value=None)
 
-            def prepare_autotag_status(pil_img, tagger_key, current_status):
-                if pil_img is None:
-                    return current_status
-                models_dir, should_autodownload = _resolve_models_dir()
-                if should_autodownload and _model_missing_for_tagger(tagger_key, models_dir):
-                    return f"Downloading {_tagger_label(tagger_key)} model..."
-                return current_status
-
             def select_tagger(key: str):
                 return (
                     key,
@@ -511,28 +477,15 @@ class Script(scripts.Script):
                 inputs=[drop_zone, image_state],
                 outputs=[image_state, preview, status, drop_zone],
             ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
-            ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider],
                 outputs=[out_tags, status],
-            ).then(
-                fn=None,
-                inputs=[],
-                outputs=[],
-                js=js_clear_file_frontend,
             )
 
             paste_pipe.change(
                 fn=set_from_paste,
                 inputs=[paste_pipe],
                 outputs=[image_state, preview, status],
-            ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider],
@@ -543,67 +496,38 @@ class Script(scripts.Script):
                 fn=remove_image,
                 inputs=[],
                 outputs=[image_state, preview, status, out_tags, drop_zone],
-            ).then(
-                fn=None,
-                inputs=[],
-                outputs=[],
-                js=js_clear_file_frontend,
             )
 
             btn_wd14.click(
                 fn=lambda: select_tagger("wd14"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
             ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
 
             btn_wd3.click(
                 fn=lambda: select_tagger("wd3"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
             ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
 
             btn_ddb.click(
                 fn=lambda: select_tagger("ddb"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
             ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
 
             btn_e621.click(
                 fn=lambda: select_tagger("e621"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
             ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
 
             gen_slider.change(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
-            ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider],
                 outputs=[out_tags, status],
             )
             char_slider.change(
-                fn=prepare_autotag_status,
-                inputs=[image_state, selected_tagger, status],
-                outputs=[status],
-            ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider],
                 outputs=[out_tags, status],
@@ -617,3 +541,4 @@ class Script(scripts.Script):
             )
 
         return [out_tags]
+
