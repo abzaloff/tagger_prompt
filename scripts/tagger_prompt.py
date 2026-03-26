@@ -255,7 +255,7 @@ class Script(scripts.Script):
   }}
   #{eid_drop} label, #{eid_drop} .label, #{eid_drop} .upload-text, #{eid_drop} .filetype{{display:none!important;}}
   #{eid_drop}::after{{
-      content:"Drag an image here or click to choose one, or use \"Paste from clipboard\"";
+      content:'Drag an image here or click to choose one, or use "Paste from clipboard"';
       position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
       padding:0 14px; font-size:13.5px; font-weight:600; opacity:.95;
       border:1.5px dashed var(--block-border-color); border-radius:8px;
