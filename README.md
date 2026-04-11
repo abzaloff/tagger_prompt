@@ -1,7 +1,7 @@
 # Tagger Prompt
 `Tagger Prompt` is a small Forge extension that turns an input image into prompt tags inside the Stable Diffusion UI.
 
-<img width="872" height="750" alt="tagger_prompt" src="https://github.com/user-attachments/assets/b686ef1a-ccf7-48b7-bf03-96e1db6bbc07" />
+<img width="898" height="867" alt="777" src="https://github.com/user-attachments/assets/a710d8ed-4fc6-4a46-93df-d6ed0e5a930e" />
 
 ## What It Does
 
