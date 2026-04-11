@@ -52,6 +52,14 @@ def _get_models_dir() -> str:
         return ""
 
 
+def _get_default_negative_words() -> str:
+    try:
+        value = shared.opts.data.get("tagger_prompt_default_negative_words", _DEFAULT_NEGATIVE_WORDS) or ""
+    except Exception:
+        value = _DEFAULT_NEGATIVE_WORDS
+    return str(value)
+
+
 _MODEL_DOWNLOADS = {
     "wd14": {
         "folder": "wd14",
@@ -83,6 +91,8 @@ _MODEL_DOWNLOADS = {
     },
 }
 
+_DEFAULT_NEGATIVE_WORDS = "logo, watermark, patreon logo, patreon username, artist name, web address"
+
 
 def on_ui_settings():
     shared.opts.add_option(
@@ -90,6 +100,14 @@ def on_ui_settings():
         shared.OptionInfo(
             "",
             "Tagger models directory (WD14 / WD3 / DDB / E621)",
+            section=("tagger_prompt", "Tagger Prompt"),
+        ),
+    )
+    shared.opts.add_option(
+        "tagger_prompt_default_negative_words",
+        shared.OptionInfo(
+            _DEFAULT_NEGATIVE_WORDS,
+            "Default Negative Words",
             section=("tagger_prompt", "Tagger Prompt"),
         ),
     )
@@ -144,6 +162,32 @@ def _ensure_model_available(tagger_key: str, models_dir: str):
         _download_file(spec["files"][name], model_dir / name)
 
 
+def _sync_negative_words_in_ui_config(default_negative_words: str):
+    try:
+        cfg_path = getattr(getattr(shared, "cmd_opts", None), "ui_config_file", None)
+        if not cfg_path:
+            return
+        cfg_file = Path(cfg_path)
+        if not cfg_file.exists():
+            return
+
+        data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+
+        changed = False
+        for tab in ("txt2img", "img2img"):
+            key = f"{tab}/Negative words/value"
+            if data.get(key) != default_negative_words:
+                data[key] = default_negative_words
+                changed = True
+
+        if changed:
+            cfg_file.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _build_tagger(tagger_key: str, models_dir: str):
     if not models_dir:
         raise RuntimeError("Models directory is not set. Go to Settings → Tagger Prompt and set it.")
@@ -168,7 +212,34 @@ def _save_pil_to_temp(pil_img: Image.Image) -> str:
     return str(path)
 
 
-def _run_tagger_on_pil(tagger_key: str, pil_img: Image.Image, gen_th: float, char_th: float) -> str:
+def _parse_negative_words(negative_words: str) -> set[str]:
+    return {
+        " ".join(word.strip().lower().split())
+        for word in (negative_words or "").split(",")
+        if word.strip()
+    }
+
+
+def _filter_tags_text(tags_text: str, negative_words: str) -> str:
+    blocked = _parse_negative_words(negative_words)
+    if not blocked:
+        return tags_text or ""
+
+    tags = [tag.strip() for tag in (tags_text or "").split(",")]
+    filtered = []
+    for tag in tags:
+        if not tag:
+            continue
+        normalized = " ".join(tag.lower().split())
+        if normalized in blocked:
+            continue
+        filtered.append(tag)
+    return ", ".join(filtered)
+
+
+def _run_tagger_on_pil(
+    tagger_key: str, pil_img: Image.Image, gen_th: float, char_th: float, negative_words: str
+) -> str:
     models_dir, should_autodownload = _resolve_models_dir()
     if should_autodownload:
         _ensure_model_available(tagger_key, models_dir)
@@ -193,16 +264,19 @@ def _run_tagger_on_pil(tagger_key: str, pil_img: Image.Image, gen_th: float, cha
     if out is None:
         return ""
     if isinstance(out, str):
-        return out.strip()
+        return _filter_tags_text(out.strip(), negative_words)
     if isinstance(out, (list, tuple)):
-        return ", ".join([str(x).strip() for x in out if str(x).strip()])
+        tags_text = ", ".join([str(x).strip() for x in out if str(x).strip()])
+        return _filter_tags_text(tags_text, negative_words)
     if isinstance(out, dict):
         try:
             items = sorted(out.items(), key=lambda kv: float(kv[1]), reverse=True)
-            return ", ".join([str(k).strip() for k, _ in items if str(k).strip()])
+            tags_text = ", ".join([str(k).strip() for k, _ in items if str(k).strip()])
+            return _filter_tags_text(tags_text, negative_words)
         except Exception:
-            return ", ".join([str(k).strip() for k in out.keys() if str(k).strip()])
-    return str(out).strip()
+            tags_text = ", ".join([str(k).strip() for k in out.keys() if str(k).strip()])
+            return _filter_tags_text(tags_text, negative_words)
+    return _filter_tags_text(str(out).strip(), negative_words)
 
 
 # -----------------------------
@@ -216,6 +290,9 @@ class Script(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
+        default_negative_words = _get_default_negative_words()
+        _sync_negative_words_in_ui_config(default_negative_words)
+
         # unique suffix per tab to avoid ID collisions in DOM
         ui_suffix = "i2i" if is_img2img else "t2i"
 
@@ -303,6 +380,12 @@ class Script(scripts.Script):
             with gr.Row(elem_id=eid_sliders_row):
                 gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
                 char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
+            negative_words = gr.Textbox(
+                label="Negative words",
+                lines=1,
+                value=default_negative_words,
+                placeholder="Comma-separated words/phrases to exclude from tags",
+            )
 
             # IMPORTANT: unique per tab
             paste_pipe = gr.Textbox(visible=False, elem_id=eid_paste_pipe)
@@ -450,11 +533,17 @@ class Script(scripts.Script):
                 except Exception as e:
                     return None, None, f"Could not read clipboard: {e}"
 
-            def autotag(pil_img, tagger_key, gen_th, char_th):
+            def autotag(pil_img, tagger_key, gen_th, char_th, negative_words_text):
                 if pil_img is None:
                     return "", "No image."
                 try:
-                    tags = _run_tagger_on_pil(tagger_key, pil_img, float(gen_th), float(char_th))
+                    tags = _run_tagger_on_pil(
+                        tagger_key,
+                        pil_img,
+                        float(gen_th),
+                        float(char_th),
+                        negative_words_text,
+                    )
                     return tags, "Done."
                 except Exception as e:
                     tb = traceback.format_exc()
@@ -478,7 +567,7 @@ class Script(scripts.Script):
                 outputs=[image_state, preview, status, drop_zone],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
                 outputs=[out_tags, status],
             )
 
@@ -488,7 +577,7 @@ class Script(scripts.Script):
                 outputs=[image_state, preview, status],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
                 outputs=[out_tags, status],
             )
 
@@ -502,34 +591,55 @@ class Script(scripts.Script):
                 fn=lambda: select_tagger("wd14"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                outputs=[out_tags, status],
+            )
 
             btn_wd3.click(
                 fn=lambda: select_tagger("wd3"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                outputs=[out_tags, status],
+            )
 
             btn_ddb.click(
                 fn=lambda: select_tagger("ddb"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                outputs=[out_tags, status],
+            )
 
             btn_e621.click(
                 fn=lambda: select_tagger("e621"),
                 inputs=[],
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
-            ).then(fn=autotag, inputs=[image_state, selected_tagger, gen_slider, char_slider], outputs=[out_tags, status])
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                outputs=[out_tags, status],
+            )
 
             gen_slider.change(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
                 outputs=[out_tags, status],
             )
             char_slider.change(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                outputs=[out_tags, status],
+            )
+            negative_words.change(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
                 outputs=[out_tags, status],
             )
 
