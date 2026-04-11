@@ -6,6 +6,7 @@ import time
 import base64
 import tempfile
 import traceback
+import math
 from pathlib import Path
 import importlib.util
 import shutil
@@ -92,6 +93,19 @@ _MODEL_DOWNLOADS = {
 }
 
 _DEFAULT_NEGATIVE_WORDS = "logo, watermark, patreon logo, patreon username, artist name, web address"
+_PROMPT_EXPANSION_FOLDER = "prompt_expansion/fooocus_expansion"
+_PROMPT_EXPANSION_FILES = {
+    "config.json": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/config.json",
+    "merges.txt": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/merges.txt",
+    "special_tokens_map.json": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/special_tokens_map.json",
+    "tokenizer_config.json": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/tokenizer_config.json",
+    "vocab.json": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/vocab.json",
+    "positive.txt": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/models/prompt_expansion/fooocus_expansion/positive.txt",
+    "pytorch_model.bin": "https://huggingface.co/lllyasviel/misc/resolve/main/fooocus_expansion.bin",
+}
+_NEG_INF = -8192.0
+_SEED_LIMIT_NUMPY = 2**32
+_prompt_enhancer_singleton = None
 
 
 def on_ui_settings():
@@ -160,6 +174,123 @@ def _ensure_model_available(tagger_key: str, models_dir: str):
 
     for name in missing:
         _download_file(spec["files"][name], model_dir / name)
+
+
+def _safe_str(x) -> str:
+    x = str(x)
+    for _ in range(16):
+        x = x.replace("  ", " ")
+    return x.strip(",. \r\n")
+
+
+def _ensure_prompt_expansion_assets(models_dir: str) -> Path:
+    root = Path(models_dir) / _PROMPT_EXPANSION_FOLDER
+    missing = [name for name in _PROMPT_EXPANSION_FILES if not (root / name).exists()]
+    if not missing:
+        return root
+
+    for name in missing:
+        _download_file(_PROMPT_EXPANSION_FILES[name], root / name)
+    return root
+
+
+class _FooocusPromptEnhancer:
+    def __init__(self, model_dir: Path):
+        self.model_dir = model_dir
+        self.model = None
+        self.tokenizer = None
+        self.logits_bias = None
+        self._loaded = False
+
+    def ensure_loaded(self):
+        if self._loaded:
+            return
+
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+
+        self.tokenizer = AutoTokenizer.from_pretrained(str(self.model_dir))
+        self.model = AutoModelForCausalLM.from_pretrained(str(self.model_dir))
+        self.model.eval()
+
+        if torch.cuda.is_available():
+            self.model = self.model.to("cuda")
+
+        positive_words = (self.model_dir / "positive.txt").read_text(encoding="utf-8").splitlines()
+        positive_words = {"Ġ" + w.lower() for w in positive_words if w}
+
+        logits_bias = torch.zeros((1, len(self.tokenizer.vocab)), dtype=torch.float32) + _NEG_INF
+        for token, token_id in self.tokenizer.vocab.items():
+            if token in positive_words:
+                logits_bias[0, token_id] = 0
+
+        self.logits_bias = logits_bias
+        self._loaded = True
+
+    def _logits_processor(self, input_ids, scores):
+        import torch
+
+        bias = self.logits_bias.to(scores).clone()
+        bias[0, input_ids[0].to(bias.device).long()] = _NEG_INF
+        # Allow comma token, same as Fooocus expansion.py
+        bias[0, 11] = 0
+        return scores + bias
+
+    def expand(self, prompt: str, seed: int) -> str:
+        self.ensure_loaded()
+
+        import torch
+        from transformers import set_seed
+        from transformers.generation.logits_process import LogitsProcessorList
+
+        prompt = _safe_str(prompt)
+        if not prompt:
+            return ""
+
+        seed = int(seed) % _SEED_LIMIT_NUMPY
+        set_seed(seed)
+        prompt = prompt + ","
+
+        tokenized = self.tokenizer(prompt, return_tensors="pt")
+        device = next(self.model.parameters()).device
+        tokenized.data["input_ids"] = tokenized.data["input_ids"].to(device)
+        tokenized.data["attention_mask"] = tokenized.data["attention_mask"].to(device)
+
+        current_token_length = int(tokenized.data["input_ids"].shape[1])
+        max_token_length = 75 * int(math.ceil(float(current_token_length) / 75.0))
+        max_new_tokens = max_token_length - current_token_length
+        if max_new_tokens <= 0:
+            return prompt[:-1]
+
+        with torch.no_grad():
+            features = self.model.generate(
+                **tokenized,
+                top_k=100,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                logits_processor=LogitsProcessorList([self._logits_processor]),
+            )
+        decoded = self.tokenizer.batch_decode(features, skip_special_tokens=True)
+        return _safe_str(decoded[0])
+
+
+def _get_prompt_enhancer(models_dir: str) -> _FooocusPromptEnhancer:
+    global _prompt_enhancer_singleton
+
+    model_dir = _ensure_prompt_expansion_assets(models_dir)
+    if _prompt_enhancer_singleton is None:
+        _prompt_enhancer_singleton = _FooocusPromptEnhancer(model_dir)
+    return _prompt_enhancer_singleton
+
+
+def _maybe_enhance_prompt(prompt_text: str, models_dir: str) -> str:
+    prompt_text = _safe_str(prompt_text)
+    if not prompt_text:
+        return ""
+
+    enhancer = _get_prompt_enhancer(models_dir)
+    seed = _now_ms()
+    return enhancer.expand(prompt_text, seed=seed)
 
 
 def _sync_negative_words_in_ui_config(default_negative_words: str):
@@ -235,6 +366,40 @@ def _filter_tags_text(tags_text: str, negative_words: str) -> str:
             continue
         filtered.append(tag)
     return ", ".join(filtered)
+
+
+def _split_tags_csv(text: str) -> list[str]:
+    return [tag.strip() for tag in (text or "").split(",") if tag.strip()]
+
+
+def _normalize_tag_for_compare(tag: str) -> str:
+    return " ".join((tag or "").lower().split())
+
+
+def _apply_enhancement_strength(original_text: str, enhanced_text: str, strength: float) -> str:
+    original_tags = _split_tags_csv(original_text)
+    enhanced_tags = _split_tags_csv(enhanced_text)
+
+    if not enhanced_tags:
+        return ", ".join(original_tags)
+
+    strength = max(0.0, min(1.0, float(strength)))
+    if strength <= 0.0:
+        return ", ".join(original_tags)
+    if strength >= 1.0:
+        return ", ".join(enhanced_tags)
+
+    original_norm = {_normalize_tag_for_compare(t) for t in original_tags}
+    extras = [t for t in enhanced_tags if _normalize_tag_for_compare(t) not in original_norm]
+    if not extras:
+        return ", ".join(original_tags)
+
+    keep_count = int(round(len(extras) * strength))
+    if keep_count <= 0:
+        return ", ".join(original_tags)
+
+    merged = original_tags + extras[:keep_count]
+    return ", ".join(merged)
 
 
 def _run_tagger_on_pil(
@@ -380,6 +545,20 @@ class Script(scripts.Script):
             with gr.Row(elem_id=eid_sliders_row):
                 gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
                 char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
+            with gr.Row():
+                prompt_enhance_enabled = gr.Checkbox(
+                    label="Prompt Enhancement (Fooocus V2 style, English)",
+                    value=False,
+                    scale=1,
+                )
+                enhance_strength = gr.Slider(
+                    0.0,
+                    1.0,
+                    step=0.05,
+                    value=1.0,
+                    label="Strength",
+                    scale=1,
+                )
             negative_words = gr.Textbox(
                 label="Negative words",
                 lines=1,
@@ -533,10 +712,11 @@ class Script(scripts.Script):
                 except Exception as e:
                     return None, None, f"Could not read clipboard: {e}"
 
-            def autotag(pil_img, tagger_key, gen_th, char_th, negative_words_text):
+            def autotag(pil_img, tagger_key, gen_th, char_th, negative_words_text, enhance_prompt, enhance_strength_value):
                 if pil_img is None:
                     return "", "No image."
                 try:
+                    models_dir, should_autodownload = _resolve_models_dir()
                     tags = _run_tagger_on_pil(
                         tagger_key,
                         pil_img,
@@ -544,6 +724,14 @@ class Script(scripts.Script):
                         float(char_th),
                         negative_words_text,
                     )
+                    if enhance_prompt:
+                        try:
+                            if should_autodownload:
+                                _ensure_prompt_expansion_assets(models_dir)
+                            enhanced = _maybe_enhance_prompt(tags, models_dir)
+                            tags = _apply_enhancement_strength(tags, enhanced, float(enhance_strength_value))
+                        except Exception as e:
+                            return tags, f"Tags done. Prompt enhancement skipped: {e}"
                     return tags, "Done."
                 except Exception as e:
                     tb = traceback.format_exc()
@@ -567,7 +755,7 @@ class Script(scripts.Script):
                 outputs=[image_state, preview, status, drop_zone],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
@@ -577,7 +765,7 @@ class Script(scripts.Script):
                 outputs=[image_state, preview, status],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
@@ -593,7 +781,7 @@ class Script(scripts.Script):
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
@@ -603,7 +791,7 @@ class Script(scripts.Script):
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
@@ -613,7 +801,7 @@ class Script(scripts.Script):
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
@@ -623,23 +811,33 @@ class Script(scripts.Script):
                 outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
             gen_slider.change(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
             char_slider.change(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
             negative_words.change(
                 fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words],
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
+                outputs=[out_tags, status],
+            )
+            prompt_enhance_enabled.change(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
+                outputs=[out_tags, status],
+            )
+            enhance_strength.change(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
                 outputs=[out_tags, status],
             )
 
