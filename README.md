@@ -8,6 +8,8 @@
 - Adds a `Tagger Prompt` panel to the Forge interface.
 - Lets the user upload an image or paste one from the clipboard.
 - Runs the selected tagger model and generates tags.
+- Supports filtering unwanted tags with `Negative words`.
+- Supports optional `Fooocus V2 Prompt Enhancement` with adjustable `Strength`.
 - Inserts the generated tags into the active prompt field.
 
 ## Supported Taggers
@@ -27,6 +29,16 @@
 - If `tagger_prompt_models_dir` is set in Forge settings, the extension uses that directory.
 - If it is empty, the extension uses `models/taggers_prompt_models`.
 - On first use of a tagger, the extension downloads only the files required for the selected model.
+- If `Fooocus V2 Prompt Enhancement` is enabled, the extension also auto-downloads prompt-expansion assets on first use.
+
+## Prompt Controls
+
+- `Negative words`: comma-separated words/phrases removed from generated tags.
+- `Fooocus V2 Prompt Enhancement`: optional GPT-2 based prompt expansion.
+- `Strength` (`0.0` to `1.0`): controls how much enhancement is applied.
+  - `0.0` keeps original tagger output.
+  - `1.0` applies full enhanced output.
+  - Intermediate values blend original tags with added enhancement terms.
 
 ## Typical Flow
 
@@ -41,3 +53,5 @@
 - Models are loaded through `onnxruntime`.
 - WD-style taggers support both general and character thresholds.
 - DeepDanbooru uses only the general threshold.
+- `Fooocus V2 Prompt Enhancement` requires `transformers`/`torch` at runtime.
+- During first enhancement run, download progress is shown in console with `[Fooocus V2]` logs, and UI status reports whether files were downloaded or loaded from cache.
