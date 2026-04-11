@@ -547,7 +547,7 @@ class Script(scripts.Script):
                 char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
             with gr.Row():
                 prompt_enhance_enabled = gr.Checkbox(
-                    label="Prompt Enhancement (Fooocus V2 style, English)",
+                    label="Fooocus V2 Prompt Enhancement",
                     value=False,
                     scale=1,
                 )
