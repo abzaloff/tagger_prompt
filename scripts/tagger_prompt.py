@@ -183,15 +183,21 @@ def _safe_str(x) -> str:
     return x.strip(",. \r\n")
 
 
-def _ensure_prompt_expansion_assets(models_dir: str) -> Path:
+def _ensure_prompt_expansion_assets(models_dir: str) -> tuple[Path, list[str]]:
     root = Path(models_dir) / _PROMPT_EXPANSION_FOLDER
     missing = [name for name in _PROMPT_EXPANSION_FILES if not (root / name).exists()]
     if not missing:
-        return root
+        return root, []
 
+    downloaded: list[str] = []
+    print(f"[Fooocus V2] Missing assets: {len(missing)}. Downloading to: {root}")
     for name in missing:
+        print(f"[Fooocus V2] Downloading: {name}")
         _download_file(_PROMPT_EXPANSION_FILES[name], root / name)
-    return root
+        downloaded.append(name)
+        print(f"[Fooocus V2] Downloaded: {name}")
+    print("[Fooocus V2] Asset download complete.")
+    return root, downloaded
 
 
 class _FooocusPromptEnhancer:
@@ -277,7 +283,7 @@ class _FooocusPromptEnhancer:
 def _get_prompt_enhancer(models_dir: str) -> _FooocusPromptEnhancer:
     global _prompt_enhancer_singleton
 
-    model_dir = _ensure_prompt_expansion_assets(models_dir)
+    model_dir, _ = _ensure_prompt_expansion_assets(models_dir)
     if _prompt_enhancer_singleton is None:
         _prompt_enhancer_singleton = _FooocusPromptEnhancer(model_dir)
     return _prompt_enhancer_singleton
@@ -716,7 +722,7 @@ class Script(scripts.Script):
                 if pil_img is None:
                     return "", "No image."
                 try:
-                    models_dir, should_autodownload = _resolve_models_dir()
+                    models_dir, _ = _resolve_models_dir()
                     tags = _run_tagger_on_pil(
                         tagger_key,
                         pil_img,
@@ -726,10 +732,12 @@ class Script(scripts.Script):
                     )
                     if enhance_prompt:
                         try:
-                            if should_autodownload:
-                                _ensure_prompt_expansion_assets(models_dir)
+                            _, downloaded_files = _ensure_prompt_expansion_assets(models_dir)
                             enhanced = _maybe_enhance_prompt(tags, models_dir)
                             tags = _apply_enhancement_strength(tags, enhanced, float(enhance_strength_value))
+                            if downloaded_files:
+                                return tags, f"Done. Fooocus V2 downloaded {len(downloaded_files)} file(s)."
+                            return tags, "Done. Fooocus V2 model cache is ready."
                         except Exception as e:
                             return tags, f"Tags done. Prompt enhancement skipped: {e}"
                     return tags, "Done."
