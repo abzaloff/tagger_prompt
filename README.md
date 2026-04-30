@@ -55,3 +55,7 @@
 - DeepDanbooru uses only the general threshold.
 - `Fooocus V2 Prompt Enhancement` requires `transformers`/`torch` at runtime.
 - During first enhancement run, download progress is shown in console with `[Fooocus V2]` logs, and UI status reports whether files were downloaded or loaded from cache.
+
+## License
+
+See [LICENSE.md](LICENSE.md).
