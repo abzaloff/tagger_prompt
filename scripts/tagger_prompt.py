@@ -486,6 +486,10 @@ class Script(scripts.Script):
 <style>
   #{eid_tagger_row}{{display:flex;gap:8px;width:100%;}}
   #{eid_tagger_row} .gr-button{{flex:1 1 0;min-width:0;}}
+  #{eid_tagger_row} .gr-button,
+  #{eid_tagger_row} button,
+  #{eid_upload_bar} .gr-button,
+  #{eid_upload_bar} button{{border-radius:8px !important;}}
 
   /* make "primary" not screaming, just slightly lighter */
   #{eid_tagger_row} .gr-button.primary{{
