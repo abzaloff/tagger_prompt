@@ -1,7 +1,7 @@
 # taggers_core.py
 # Core taggers for Forge extension "Tagger Prompt"
 # Expects models_root to contain subfolders:
-#   wd14, wd_swinv2_v3, deepdanbooru, e621
+#   wd14, wd_swinv2_v3, wd_vit_v3, wd_eva_v3, wd_conv_v3, deepdanbooru, e621
 
 from __future__ import annotations
 
@@ -142,6 +142,24 @@ class WDSwinV2V3Tagger(WD14Tagger):
         self.rating_idx: list[int] = []
         self.general_idx: list[int] = []
         self.char_idx: list[int] = []
+
+
+class WDViTV3Tagger(WD14Tagger):
+    def __init__(self, models_root: str | Path):
+        super().__init__(models_root)
+        self.model_dir = Path(models_root) / "wd_vit_v3"
+
+
+class WDEVAV3Tagger(WD14Tagger):
+    def __init__(self, models_root: str | Path):
+        super().__init__(models_root)
+        self.model_dir = Path(models_root) / "wd_eva_v3"
+
+
+class WDConvV3Tagger(WD14Tagger):
+    def __init__(self, models_root: str | Path):
+        super().__init__(models_root)
+        self.model_dir = Path(models_root) / "wd_conv_v3"
 
 
 # --------------- DeepDanbooru ---------------

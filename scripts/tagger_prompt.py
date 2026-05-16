@@ -35,6 +35,9 @@ _spec.loader.exec_module(_core)
 
 WD14Tagger = _core.WD14Tagger
 WDSwinV2V3Tagger = _core.WDSwinV2V3Tagger
+WDViTV3Tagger = _core.WDViTV3Tagger
+WDEVAV3Tagger = _core.WDEVAV3Tagger
+WDConvV3Tagger = _core.WDConvV3Tagger
 DeepDanbooruTagger = _core.DeepDanbooruTagger
 E621Tagger = _core.E621Tagger
 
@@ -76,6 +79,27 @@ _MODEL_DOWNLOADS = {
             "selected_tags.csv": "https://huggingface.co/SmilingWolf/wd-swinv2-tagger-v3/resolve/main/selected_tags.csv?download=true",
         },
     },
+    "wd_vit_v3": {
+        "folder": "wd_vit_v3",
+        "files": {
+            "model.onnx": "https://huggingface.co/SmilingWolf/wd-vit-tagger-v3/resolve/main/model.onnx?download=true",
+            "selected_tags.csv": "https://huggingface.co/SmilingWolf/wd-vit-tagger-v3/resolve/main/selected_tags.csv?download=true",
+        },
+    },
+    "wd_eva_v3": {
+        "folder": "wd_eva_v3",
+        "files": {
+            "model.onnx": "https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3/resolve/main/model.onnx?download=true",
+            "selected_tags.csv": "https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3/resolve/main/selected_tags.csv?download=true",
+        },
+    },
+    "wd_conv_v3": {
+        "folder": "wd_conv_v3",
+        "files": {
+            "model.onnx": "https://huggingface.co/SmilingWolf/wd-convnext-tagger-v3/resolve/main/model.onnx?download=true",
+            "selected_tags.csv": "https://huggingface.co/SmilingWolf/wd-convnext-tagger-v3/resolve/main/selected_tags.csv?download=true",
+        },
+    },
     "ddb": {
         "folder": "deepdanbooru",
         "files": {
@@ -113,7 +137,7 @@ def on_ui_settings():
         "tagger_prompt_models_dir",
         shared.OptionInfo(
             "",
-            "Tagger models directory (WD14 / WD3 / DDB / E621)",
+            "Tagger models directory (WD14 / WD3 / WD ViT v3 / WD EVA v3 / WD Conv v3 / DDB / E621)",
             section=("tagger_prompt", "Tagger Prompt"),
         ),
     )
@@ -333,6 +357,12 @@ def _build_tagger(tagger_key: str, models_dir: str):
         return WD14Tagger(models_dir)
     if tagger_key == "wd3":
         return WDSwinV2V3Tagger(models_dir)
+    if tagger_key == "wd_vit_v3":
+        return WDViTV3Tagger(models_dir)
+    if tagger_key == "wd_eva_v3":
+        return WDEVAV3Tagger(models_dir)
+    if tagger_key == "wd_conv_v3":
+        return WDConvV3Tagger(models_dir)
     if tagger_key == "ddb":
         return DeepDanbooruTagger(models_dir)
     if tagger_key == "e621":
@@ -424,7 +454,7 @@ def _run_tagger_on_pil(
 
     img_path = _save_pil_to_temp(pil_img)
 
-    # WD14 / WD3 / E621 support both general + character thresholds.
+    # WD-style taggers / E621 support both general + character thresholds.
     # DeepDanbooru uses only general threshold.
     if tagger_key == "ddb":
         out = tagger.predict(img_path, float(gen_th))
@@ -484,8 +514,9 @@ class Script(scripts.Script):
             gr.HTML(
                 f"""
 <style>
-  #{eid_tagger_row}{{display:flex;gap:8px;width:100%;}}
-  #{eid_tagger_row} .gr-button{{flex:1 1 0;min-width:0;}}
+  #{eid_tagger_row}{{display:flex;gap:6px;width:100%;}}
+  #{eid_tagger_row} > *{{min-width:min(116px, 100%) !important;}}
+  #{eid_tagger_row} .gr-button{{flex:1 1 0;min-width:min(116px, 100%) !important;padding-left:clamp(8px, 1vw, 14px) !important;padding-right:clamp(8px, 1vw, 14px) !important;}}
   #{eid_tagger_row} .gr-button,
   #{eid_tagger_row} button,
   #{eid_upload_bar} .gr-button,
@@ -544,6 +575,9 @@ class Script(scripts.Script):
             with gr.Row(elem_id=eid_tagger_row):
                 btn_wd14 = gr.Button("WD14", variant="primary")
                 btn_wd3 = gr.Button("WD3", variant="secondary")
+                btn_wd_vit_v3 = gr.Button("WD ViT v3", variant="secondary")
+                btn_wd_eva_v3 = gr.Button("WD EVA v3", variant="secondary")
+                btn_wd_conv_v3 = gr.Button("WD Conv v3", variant="secondary")
                 btn_ddb = gr.Button("DDB", variant="secondary")
                 btn_e621 = gr.Button("E621", variant="secondary")
 
@@ -757,6 +791,9 @@ class Script(scripts.Script):
                     key,
                     gr.update(variant="primary" if key == "wd14" else "secondary"),
                     gr.update(variant="primary" if key == "wd3" else "secondary"),
+                    gr.update(variant="primary" if key == "wd_vit_v3" else "secondary"),
+                    gr.update(variant="primary" if key == "wd_eva_v3" else "secondary"),
+                    gr.update(variant="primary" if key == "wd_conv_v3" else "secondary"),
                     gr.update(variant="primary" if key == "ddb" else "secondary"),
                     gr.update(variant="primary" if key == "e621" else "secondary"),
                 )
@@ -790,7 +827,7 @@ class Script(scripts.Script):
             btn_wd14.click(
                 fn=lambda: select_tagger("wd14"),
                 inputs=[],
-                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
@@ -800,7 +837,37 @@ class Script(scripts.Script):
             btn_wd3.click(
                 fn=lambda: select_tagger("wd3"),
                 inputs=[],
-                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
+                outputs=[out_tags, status],
+            )
+
+            btn_wd_vit_v3.click(
+                fn=lambda: select_tagger("wd_vit_v3"),
+                inputs=[],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
+                outputs=[out_tags, status],
+            )
+
+            btn_wd_eva_v3.click(
+                fn=lambda: select_tagger("wd_eva_v3"),
+                inputs=[],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
+            ).then(
+                fn=autotag,
+                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
+                outputs=[out_tags, status],
+            )
+
+            btn_wd_conv_v3.click(
+                fn=lambda: select_tagger("wd_conv_v3"),
+                inputs=[],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
@@ -810,7 +877,7 @@ class Script(scripts.Script):
             btn_ddb.click(
                 fn=lambda: select_tagger("ddb"),
                 inputs=[],
-                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
@@ -820,7 +887,7 @@ class Script(scripts.Script):
             btn_e621.click(
                 fn=lambda: select_tagger("e621"),
                 inputs=[],
-                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_ddb, btn_e621],
+                outputs=[selected_tagger, btn_wd14, btn_wd3, btn_wd_vit_v3, btn_wd_eva_v3, btn_wd_conv_v3, btn_ddb, btn_e621],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],

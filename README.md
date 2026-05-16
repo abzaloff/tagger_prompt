@@ -16,6 +16,9 @@
 
 - `WD14`
 - `WD3` (`WD SwinV2 v3`)
+- `WD ViT v3`
+- `WD EVA v3`
+- `WD Conv v3`
 - `DeepDanbooru`
 - `E621`
 
@@ -26,9 +29,9 @@
 
 ## Model Storage
 
-- If `tagger_prompt_models_dir` is set in Forge settings, the extension uses that directory.
+- If `tagger_prompt_models_dir` is set in Forge settings, the extension uses that directory and expects the required model files to already be present there.
 - If it is empty, the extension uses `models/taggers_prompt_models`.
-- On first use of a tagger, the extension downloads only the files required for the selected model.
+- When the default models directory is used, the extension automatically downloads only the files required for the selected model on first use.
 - If `Fooocus V2 Prompt Enhancement` is enabled, the extension also auto-downloads prompt-expansion assets on first use.
 
 ## Prompt Controls
