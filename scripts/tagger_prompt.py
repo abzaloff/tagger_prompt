@@ -499,6 +499,9 @@ class Script(scripts.Script):
 
         # ids
         eid_tagger_row = f"tp_tagger_row_{ui_suffix}"
+        eid_main_layout = f"tp_main_layout_{ui_suffix}"
+        eid_controls_col = f"tp_controls_col_{ui_suffix}"
+        eid_image_col = f"tp_image_col_{ui_suffix}"
         eid_upload_bar = f"tp_upload_bar_{ui_suffix}"
         eid_sliders_row = f"tp_sliders_row_{ui_suffix}"
         eid_drop = f"tp_drop_{ui_suffix}"
@@ -531,7 +534,16 @@ class Script(scripts.Script):
   #{eid_upload_bar}{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;align-items:stretch}}
   #{eid_upload_bar} .gr-button{{width:100%}}
 
-  #{eid_drop}{{position:relative;margin-top:6px;min-height:84px !important;height:84px !important;overflow:hidden;}}
+  #{eid_main_layout}{{
+    display:grid !important;
+    grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);
+    gap:12px;
+    align-items:start;
+  }}
+  #{eid_main_layout} > *{{min-width:0 !important;}}
+  #{eid_controls_col}, #{eid_image_col}{{min-width:0 !important;}}
+
+  #{eid_drop}{{position:relative;margin-top:0;min-height:84px !important;height:84px !important;overflow:hidden;}}
   #{eid_drop} .wrap, #{eid_drop} .file-wrap, #{eid_drop} .border, #{eid_drop} .container{{
     height:100% !important;min-height:100% !important;padding:0 !important;
     background:transparent !important;border:none !important;
@@ -551,6 +563,10 @@ class Script(scripts.Script):
   #{eid_status} {{ min-height: 1.2em; }}
 
   #{eid_sliders_row} {{ margin-top: 6px; }}
+
+  @media (max-width: 900px){{
+    #{eid_main_layout}{{grid-template-columns:1fr;}}
+  }}
 </style>
 
 <script>
@@ -581,37 +597,50 @@ class Script(scripts.Script):
                 btn_ddb = gr.Button("DDB", variant="secondary")
                 btn_e621 = gr.Button("E621", variant="secondary")
 
-            with gr.Row(elem_id=eid_upload_bar):
-                paste_btn = gr.Button("Paste from clipboard", elem_id=eid_paste_btn)
-                remove_btn = gr.Button("Remove")
+            with gr.Row(elem_id=eid_main_layout):
+                with gr.Column(elem_id=eid_controls_col, scale=1):
+                    with gr.Row(elem_id=eid_upload_bar):
+                        paste_btn = gr.Button("Paste from clipboard", elem_id=eid_paste_btn)
+                        remove_btn = gr.Button("Remove")
 
-            # Threshold sliders (no custom styles)
-            with gr.Row(elem_id=eid_sliders_row):
-                gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
-                char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
-            with gr.Row():
-                prompt_enhance_enabled = gr.Checkbox(
-                    label="Fooocus V2 Prompt Enhancement",
-                    value=False,
-                    scale=1,
-                )
-                enhance_strength = gr.Slider(
-                    0.0,
-                    1.0,
-                    step=0.05,
-                    value=1.0,
-                    label="Strength",
-                    scale=1,
-                )
-            negative_words = gr.Textbox(
-                label="Negative words",
-                lines=1,
-                value=default_negative_words,
-                placeholder="Comma-separated words/phrases to exclude from tags",
-            )
+                    # Threshold sliders (no custom styles)
+                    with gr.Row(elem_id=eid_sliders_row):
+                        gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
+                        char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
+                    with gr.Row():
+                        prompt_enhance_enabled = gr.Checkbox(
+                            label="Fooocus V2 Prompt Enhancement",
+                            value=False,
+                            scale=1,
+                        )
+                        enhance_strength = gr.Slider(
+                            0.0,
+                            1.0,
+                            step=0.05,
+                            value=1.0,
+                            label="Strength",
+                            scale=1,
+                        )
+                    negative_words = gr.Textbox(
+                        label="Negative words",
+                        lines=2,
+                        value=default_negative_words,
+                        placeholder="Comma-separated words/phrases to exclude from tags",
+                    )
 
-            # IMPORTANT: unique per tab
-            paste_pipe = gr.Textbox(visible=False, elem_id=eid_paste_pipe)
+                    # IMPORTANT: unique per tab
+                    paste_pipe = gr.Textbox(visible=False, elem_id=eid_paste_pipe)
+
+                with gr.Column(elem_id=eid_image_col, scale=1):
+                    drop_zone = gr.File(
+                        label="",
+                        show_label=False,
+                        file_types=["image"],
+                        file_count="single",
+                        elem_id=eid_drop,
+                    )
+
+                    preview = gr.Image(label="Preview", type="pil", height=170, elem_id=eid_preview, interactive=False)
 
             # Paste: write into the tab-local hidden pipe and dispatch events
             paste_btn.click(
@@ -659,15 +688,6 @@ class Script(scripts.Script):
                 """,
             )
 
-            drop_zone = gr.File(
-                label="",
-                show_label=False,
-                file_types=["image"],
-                file_count="single",
-                elem_id=eid_drop,
-            )
-
-            preview = gr.Image(label="Preview", type="pil", height=170, elem_id=eid_preview, interactive=False)
             out_tags = gr.Textbox(label="Tags / Prompt", lines=4)
             send_btn = gr.Button("Insert into Prompt")
             status = gr.Markdown("Ready to work. Insert an image.", elem_id=eid_status, visible=False)
