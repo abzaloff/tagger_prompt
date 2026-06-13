@@ -746,16 +746,16 @@ class Script(scripts.Script):
             def set_from_file(file_obj, current_pil):
                 if not file_obj:
                     if current_pil is None:
-                        return None, None, "No image selected.", gr.update(value=None)
-                    return current_pil, current_pil, "Done.", gr.update(value=None)
+                        return None, None, "No image selected."
+                    return current_pil, current_pil, "Done."
 
                 try:
                     pil = Image.open(file_obj.name).convert("RGB")
-                    return pil, pil, "Image loaded.", gr.update(value=None)
+                    return pil, pil, "Image loaded."
                 except Exception as e:
                     if current_pil is None:
-                        return None, None, f"Could not open image: {e}", gr.update(value=None)
-                    return current_pil, current_pil, f"Could not open image: {e}", gr.update(value=None)
+                        return None, None, f"Could not open image: {e}"
+                    return current_pil, current_pil, f"Could not open image: {e}"
 
             def set_from_paste(payload_json):
                 if not payload_json:
@@ -821,7 +821,7 @@ class Script(scripts.Script):
             drop_zone.change(
                 fn=set_from_file,
                 inputs=[drop_zone, image_state],
-                outputs=[image_state, preview, status, drop_zone],
+                outputs=[image_state, preview, status],
             ).then(
                 fn=autotag,
                 inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
