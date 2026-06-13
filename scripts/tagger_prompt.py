@@ -803,6 +803,36 @@ class Script(scripts.Script):
                     tb = traceback.format_exc()
                     return "", f"Tagger error: {e}\n\n{tb}"
 
+            def set_from_file_and_autotag(
+                file_obj,
+                current_pil,
+                tagger_key,
+                gen_th,
+                char_th,
+                negative_words_text,
+                enhance_prompt,
+                enhance_strength_value,
+            ):
+                # Clearing the file component emits one more change event. Ignore
+                # that event so it only restores the dropzone, without retagging.
+                if not file_obj:
+                    return current_pil, gr.update(), gr.update(), gr.update(), gr.update()
+
+                pil, preview_value, load_status = set_from_file(file_obj, current_pil)
+                if pil is current_pil:
+                    return current_pil, preview_value, load_status, gr.update(), gr.update(value=None)
+
+                tags, tag_status = autotag(
+                    pil,
+                    tagger_key,
+                    gen_th,
+                    char_th,
+                    negative_words_text,
+                    enhance_prompt,
+                    enhance_strength_value,
+                )
+                return pil, preview_value, tag_status, tags, gr.update(value=None)
+
             def remove_image():
                 return None, None, "Image removed.", "", gr.update(value=None)
 
@@ -819,13 +849,18 @@ class Script(scripts.Script):
                 )
 
             drop_zone.change(
-                fn=set_from_file,
-                inputs=[drop_zone, image_state],
-                outputs=[image_state, preview, status],
-            ).then(
-                fn=autotag,
-                inputs=[image_state, selected_tagger, gen_slider, char_slider, negative_words, prompt_enhance_enabled, enhance_strength],
-                outputs=[out_tags, status],
+                fn=set_from_file_and_autotag,
+                inputs=[
+                    drop_zone,
+                    image_state,
+                    selected_tagger,
+                    gen_slider,
+                    char_slider,
+                    negative_words,
+                    prompt_enhance_enabled,
+                    enhance_strength,
+                ],
+                outputs=[image_state, preview, status, out_tags, drop_zone],
             )
 
             paste_pipe.change(
