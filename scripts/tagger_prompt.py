@@ -720,24 +720,61 @@ class Script(scripts.Script):
                     const focusedIsT2i = (t2i && (ae === t2i || (ae && ae.closest && ae.closest('#txt2img_prompt'))));
                     const focusedIsI2i = (i2i && (ae === i2i || (ae && ae.closest && ae.closest('#img2img_prompt'))));
 
+                    const tabIsVisible = (id) => {
+                      const el = document.querySelector(id);
+                      return isVisible(el);
+                    };
+
                     let target = null;
                     if (focusedIsT2i) target = t2i;
                     else if (focusedIsI2i) target = i2i;
-                    else if (isVisible(t2i) && !isVisible(i2i)) target = t2i;
-                    else if (isVisible(i2i) && !isVisible(t2i)) target = i2i;
-                    else if (isVisible(t2i)) target = t2i;
-                    else if (isVisible(i2i)) target = i2i;
+                    else if (typeof get_uiCurrentTabContent === 'function') {
+                      try {
+                        const currentTab = get_uiCurrentTabContent();
+                        if (currentTab && currentTab.id === 'tab_img2img') target = i2i;
+                        else if (currentTab && currentTab.id === 'tab_txt2img') target = t2i;
+                      } catch(e) {}
+                    }
+                    if (!target && typeof activePromptTextarea === 'object') {
+                      try {
+                        if (activePromptTextarea.img2img === i2i) target = i2i;
+                        else if (activePromptTextarea.txt2img === t2i) target = t2i;
+                      } catch(e) {}
+                    }
+                    if (!target) {
+                      if (tabIsVisible('#tab_img2img')) target = i2i;
+                      else if (tabIsVisible('#tab_txt2img')) target = t2i;
+                      else if (isVisible(t2i)) target = t2i;
+                      else if (isVisible(i2i)) target = i2i;
+                      else target = t2i || i2i;
+                    }
 
                     if (!target) return "Could not find the active Prompt field.";
 
                     target.value = val;
-                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    if (typeof updateInput === 'function') {
+                      try { updateInput(target); } catch(e) {
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                    } else {
+                      target.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    target.dispatchEvent(new Event('change', { bubbles: true }));
 
-                    try { target.focus(); } catch(e){}
+                    const isImg2Img = target === i2i;
+                    const promptBlock = target.closest('#txt2img_prompt, #img2img_prompt') || target;
+                    const phystonBlock = document.querySelector(isImg2Img ? '#phystonPrompt_img2img_prompt' : '#phystonPrompt_txt2img_prompt');
+                    const scrollTarget = isVisible(promptBlock) ? promptBlock : (isVisible(phystonBlock) ? phystonBlock : null);
                     try {
-                      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      if (scrollTarget) scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      else window.scrollTo({ top: 0, behavior: 'smooth' });
                     } catch(e){
                       try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e2){}
+                    }
+                    if (isVisible(target)) {
+                      setTimeout(() => {
+                        try { target.focus({ preventScroll: true }); } catch(e){}
+                      }, 700);
                     }
                     return "";
                 }
