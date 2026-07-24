@@ -499,11 +499,13 @@ class Script(scripts.Script):
 
         # ids
         eid_tagger_row = f"tp_tagger_row_{ui_suffix}"
+        eid_content = f"tp_content_{ui_suffix}"
         eid_main_layout = f"tp_main_layout_{ui_suffix}"
         eid_controls_col = f"tp_controls_col_{ui_suffix}"
         eid_image_col = f"tp_image_col_{ui_suffix}"
         eid_upload_bar = f"tp_upload_bar_{ui_suffix}"
         eid_sliders_row = f"tp_sliders_row_{ui_suffix}"
+        eid_enhance_row = f"tp_enhance_row_{ui_suffix}"
         eid_drop = f"tp_drop_{ui_suffix}"
         eid_preview = f"tp_preview_{ui_suffix}"
         eid_status = f"tp_status_{ui_suffix}"
@@ -518,8 +520,23 @@ class Script(scripts.Script):
                 f"""
 <style>
   #{eid_tagger_row}{{display:flex;gap:6px;width:100%;}}
-  #{eid_tagger_row} > *{{min-width:min(116px, 100%) !important;}}
-  #{eid_tagger_row} .gr-button{{flex:1 1 0;min-width:min(116px, 100%) !important;padding-left:clamp(8px, 1vw, 14px) !important;padding-right:clamp(8px, 1vw, 14px) !important;}}
+  #{eid_tagger_row} > *{{min-width:min(108px, 100%) !important;}}
+  #{eid_tagger_row} .gr-button{{
+    flex:1 1 0;
+    min-width:min(108px, 100%) !important;
+    white-space:nowrap !important;
+  }}
+  /* Gradio applies its own padding to the nested <button>, especially when
+     an extension has reparented this panel. Target that element directly. */
+  #{eid_tagger_row} button{{
+    min-width:0 !important;
+    padding-left:4px !important;
+    padding-right:4px !important;
+  }}
+  #{eid_tagger_row} button,
+  #{eid_tagger_row} button *{{
+    white-space:nowrap !important;
+  }}
   #{eid_tagger_row} .gr-button,
   #{eid_tagger_row} button,
   #{eid_upload_bar} .gr-button,
@@ -534,6 +551,20 @@ class Script(scripts.Script):
   #{eid_upload_bar}{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;align-items:stretch}}
   #{eid_upload_bar} .gr-button{{width:100%}}
 
+  /* Forge variants do not agree on the default spacing of Accordion children.
+     Keep this panel self-contained, so it has the same comfortable gutters
+     whether it is displayed directly or inside a tabs-extension container. */
+  #{eid_content}{{
+    box-sizing:border-box !important;
+    width:100% !important;
+    margin:0 !important;
+    padding:16px !important;
+    gap:16px !important;
+    background:var(--block-background-fill) !important;
+    border-radius:8px !important;
+  }}
+  #{eid_content} > .gradio-container{{margin:0 !important;}}
+
   #{eid_main_layout}{{
     display:grid !important;
     grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);
@@ -541,12 +572,15 @@ class Script(scripts.Script):
     align-items:start;
   }}
   #{eid_main_layout} > *{{min-width:0 !important;}}
-  #{eid_controls_col}, #{eid_image_col}{{min-width:0 !important;}}
+  #{eid_controls_col}, #{eid_image_col}{{
+    min-width:0 !important;
+    gap:16px !important;
+  }}
 
   #{eid_drop}{{position:relative;margin-top:0;min-height:84px !important;height:84px !important;overflow:hidden;}}
   #{eid_drop} .wrap, #{eid_drop} .file-wrap, #{eid_drop} .border, #{eid_drop} .container{{
     height:100% !important;min-height:100% !important;padding:0 !important;
-    background:transparent !important;border:none !important;
+    background:transparent !important;
   }}
   #{eid_drop} label, #{eid_drop} .label, #{eid_drop} .upload-text, #{eid_drop} .filetype{{display:none!important;}}
   #{eid_drop}::after{{
@@ -557,8 +591,30 @@ class Script(scripts.Script):
       background:var(--body-background-fill); text-align:center;
       pointer-events:none; z-index:2;
   }}
+  /* Gradio 4 adds border_focus to this exact File block while dragging.
+     Mirror that state on our opaque text overlay. */
+  #{eid_drop}.border_focus::after,
+  #{eid_drop}.tp-drag-active::after{{
+      border-color:var(--color-accent, #ff6d2d) !important;
+      box-shadow:0 0 0 1px var(--color-accent, #ff6d2d);
+  }}
+  #{eid_drop}.tp-drag-active .wrap,
+  #{eid_drop}.tp-drag-active .file-wrap,
+  #{eid_drop}.tp-drag-active .border,
+  #{eid_drop}.tp-drag-active .container{{
+      border-color:var(--button-primary-background-fill, #ff6d2d) !important;
+  }}
 
-  #{eid_preview} {{ height: 180px !important; max-height:180px !important; overflow:hidden !important; }}
+  #{eid_preview} {{
+    height:180px !important;
+    max-height:180px !important;
+    box-sizing:border-box !important;
+    overflow:hidden !important;
+    /* Image uses a zero --block-border-width when its container is hidden. */
+    border:1px solid var(--block-border-color) !important;
+    border-radius:8px !important;
+    background:var(--block-background-fill) !important;
+  }}
   #{eid_preview} img {{ height: 170px !important; max-height:170px !important; width:100% !important; object-fit:contain !important; }}
   #{eid_status} {{ min-height: 1.2em; }}
 
@@ -575,10 +631,33 @@ class Script(scripts.Script):
   function setupDrop(){{
     const drop = document.querySelector('#{eid_drop}');
     if(!drop) return false;
+    if (drop.dataset.tpDropReady) return true;
+    drop.dataset.tpDropReady = '1';
     drop.addEventListener('click', () => {{
       const input = drop.querySelector('input[type="file"]');
       if (input) input.click();
     }});
+    const hasFiles = (event) => {{
+      const transfer = event.dataTransfer;
+      if (!transfer) return false;
+      return (transfer.types && Array.from(transfer.types).includes('Files')) ||
+        (transfer.items && Array.from(transfer.items).some(item => item.kind === 'file'));
+    }};
+    drop.addEventListener('dragenter', (event) => {{
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      drop.classList.add('tp-drag-active');
+    }}, true);
+    drop.addEventListener('dragover', (event) => {{
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      drop.classList.add('tp-drag-active');
+    }}, true);
+    drop.addEventListener('dragleave', (event) => {{
+      if (!drop.contains(event.relatedTarget)) drop.classList.remove('tp-drag-active');
+    }}, true);
+    drop.addEventListener('drop', () => drop.classList.remove('tp-drag-active'), true);
     return true;
   }}
   let tries = 0;
@@ -588,59 +667,64 @@ class Script(scripts.Script):
 """
             )
 
-            with gr.Row(elem_id=eid_tagger_row):
-                btn_wd14 = gr.Button("WD14", variant="primary")
-                btn_wd3 = gr.Button("WD3", variant="secondary")
-                btn_wd_vit_v3 = gr.Button("WD ViT v3", variant="secondary")
-                btn_wd_eva_v3 = gr.Button("WD EVA v3", variant="secondary")
-                btn_wd_conv_v3 = gr.Button("WD Conv v3", variant="secondary")
-                btn_ddb = gr.Button("DDB", variant="secondary")
-                btn_e621 = gr.Button("E621", variant="secondary")
+            with gr.Column(elem_id=eid_content):
+                with gr.Row(elem_id=eid_tagger_row):
+                    btn_wd14 = gr.Button("WD14", variant="primary")
+                    btn_wd3 = gr.Button("WD3", variant="secondary")
+                    btn_wd_vit_v3 = gr.Button("WD ViT v3", variant="secondary")
+                    btn_wd_eva_v3 = gr.Button("WD EVA v3", variant="secondary")
+                    btn_wd_conv_v3 = gr.Button("WD Conv v3", variant="secondary")
+                    btn_ddb = gr.Button("DDB", variant="secondary")
+                    btn_e621 = gr.Button("E621", variant="secondary")
 
-            with gr.Row(elem_id=eid_main_layout):
-                with gr.Column(elem_id=eid_controls_col, scale=1):
-                    with gr.Row(elem_id=eid_upload_bar):
-                        paste_btn = gr.Button("Paste from clipboard", elem_id=eid_paste_btn)
-                        remove_btn = gr.Button("Remove")
+                with gr.Row(elem_id=eid_main_layout):
+                    with gr.Column(elem_id=eid_controls_col, scale=1):
+                        with gr.Row(elem_id=eid_upload_bar):
+                            paste_btn = gr.Button("Paste from clipboard", elem_id=eid_paste_btn)
+                            remove_btn = gr.Button("Remove")
 
-                    # Threshold sliders (no custom styles)
-                    with gr.Row(elem_id=eid_sliders_row):
-                        gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
-                        char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
-                    with gr.Row():
-                        prompt_enhance_enabled = gr.Checkbox(
-                            label="Fooocus V2 Prompt Enhancement",
-                            value=False,
-                            scale=1,
+                        # Threshold sliders (no custom styles)
+                        with gr.Row(elem_id=eid_sliders_row):
+                            gen_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.35, label="Gen")
+                            char_slider = gr.Slider(0.0, 1.0, step=0.01, value=0.90, label="Char")
+                        with gr.Row(elem_id=eid_enhance_row):
+                            prompt_enhance_enabled = gr.Checkbox(
+                                label="Fooocus V2 Prompt Enhancement",
+                                value=False,
+                                scale=1,
+                            )
+                            enhance_strength = gr.Slider(
+                                0.0,
+                                1.0,
+                                step=0.05,
+                                value=1.0,
+                                label="Strength",
+                                scale=1,
+                            )
+                        negative_words = gr.Textbox(
+                            label="Negative words",
+                            lines=2,
+                            value=default_negative_words,
+                            placeholder="Comma-separated words/phrases to exclude from tags",
                         )
-                        enhance_strength = gr.Slider(
-                            0.0,
-                            1.0,
-                            step=0.05,
-                            value=1.0,
-                            label="Strength",
-                            scale=1,
+
+                        # IMPORTANT: unique per tab
+                        paste_pipe = gr.Textbox(visible=False, elem_id=eid_paste_pipe)
+
+                    with gr.Column(elem_id=eid_image_col, scale=1):
+                        drop_zone = gr.File(
+                            label="",
+                            show_label=False,
+                            file_types=["image"],
+                            file_count="single",
+                            elem_id=eid_drop,
                         )
-                    negative_words = gr.Textbox(
-                        label="Negative words",
-                        lines=2,
-                        value=default_negative_words,
-                        placeholder="Comma-separated words/phrases to exclude from tags",
-                    )
 
-                    # IMPORTANT: unique per tab
-                    paste_pipe = gr.Textbox(visible=False, elem_id=eid_paste_pipe)
+                        preview = gr.Image(label="Preview", type="pil", height=170, elem_id=eid_preview, interactive=False)
 
-                with gr.Column(elem_id=eid_image_col, scale=1):
-                    drop_zone = gr.File(
-                        label="",
-                        show_label=False,
-                        file_types=["image"],
-                        file_count="single",
-                        elem_id=eid_drop,
-                    )
-
-                    preview = gr.Image(label="Preview", type="pil", height=170, elem_id=eid_preview, interactive=False)
+                out_tags = gr.Textbox(label="Tags / Prompt", lines=4)
+                send_btn = gr.Button("Insert into Prompt")
+                status = gr.Markdown("Ready to work. Insert an image.", elem_id=eid_status, visible=False)
 
             # Paste: write into the tab-local hidden pipe and dispatch events
             paste_btn.click(
@@ -687,10 +771,6 @@ class Script(scripts.Script):
                 }}
                 """,
             )
-
-            out_tags = gr.Textbox(label="Tags / Prompt", lines=4)
-            send_btn = gr.Button("Insert into Prompt")
-            status = gr.Markdown("Ready to work. Insert an image.", elem_id=eid_status, visible=False)
 
             # Insert ONLY into active tab prompt + scroll to that prompt
             js_replace_prompt_and_scroll = r"""
