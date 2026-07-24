@@ -520,16 +520,16 @@ class Script(scripts.Script):
                 f"""
 <style>
   #{eid_tagger_row}{{display:flex;gap:6px;width:100%;}}
+  /* Preserve Gradio Row's native flex wrapping and sizing behaviour. */
   #{eid_tagger_row} > *{{min-width:min(108px, 100%) !important;}}
   #{eid_tagger_row} .gr-button{{
     flex:1 1 0;
     min-width:min(108px, 100%) !important;
     white-space:nowrap !important;
   }}
-  /* Gradio applies its own padding to the nested <button>, especially when
-     an extension has reparented this panel. Target that element directly. */
+  /* Only compact the button's horizontal padding. Do not override its
+     min-width: Gradio's Row uses it to wrap whole buttons responsively. */
   #{eid_tagger_row} button{{
-    min-width:0 !important;
     padding-left:4px !important;
     padding-right:4px !important;
   }}
