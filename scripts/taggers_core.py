@@ -5,7 +5,27 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+
+def _create_onnx_session(model_path: Path):
+    import onnxruntime as ort
+
+    providers = ["CPUExecutionProvider"]
+    try:
+        available = ort.get_available_providers()
+    except Exception:
+        available = ()
+    if "CUDAExecutionProvider" in available:
+        providers.insert(0, "CUDAExecutionProvider")
+        if sys.platform == "win32" and hasattr(ort, "preload_dlls"):
+            try:
+                ort.preload_dlls()
+            except (OSError, RuntimeError) as exc:
+                print(f"[Tagger Prompt] CUDA DLL preloading failed: {exc}")
+
+    return ort.InferenceSession(str(model_path), providers=providers)
 
 
 # ---------------- WD14 ----------------
@@ -33,8 +53,6 @@ class WD14Tagger:
             raise FileNotFoundError(f"WD14 folder not found: {self.model_dir}")
 
         import csv
-        import onnxruntime as ort
-        from onnxruntime import InferenceSession
 
         onnx_path = None
         for name in ["model.onnx", "wd-v1-4-vit-tagger-v2.onnx", "wd-v1-4-swinv2-tagger-v2.onnx"]:
@@ -53,14 +71,7 @@ class WD14Tagger:
         if not csv_path.exists():
             raise FileNotFoundError(f"selected_tags.csv not found in {self.model_dir}")
 
-        providers = ["CPUExecutionProvider"]
-        try:
-            if "CUDAExecutionProvider" in set(ort.get_available_providers()):
-                providers.insert(0, "CUDAExecutionProvider")
-        except Exception:
-            pass
-
-        self.session = InferenceSession(str(onnx_path), providers=providers)
+        self.session = _create_onnx_session(onnx_path)
         self.input_name = self.session.get_inputs()[0].name
         self.out_name = self.session.get_outputs()[0].name
 
@@ -182,9 +193,6 @@ class DeepDanbooruTagger:
         if not self.model_dir.exists():
             raise FileNotFoundError(f"DeepDanbooru folder not found: {self.model_dir}")
 
-        import onnxruntime as ort
-        from onnxruntime import InferenceSession
-
         onnx_path = self.model_dir / "model.onnx"
         if not onnx_path.exists():
             files = sorted(self.model_dir.glob("*.onnx"))
@@ -196,14 +204,7 @@ class DeepDanbooruTagger:
         if not tags_path.exists():
             raise FileNotFoundError(f"tags.txt not found in {self.model_dir}")
 
-        providers = ["CPUExecutionProvider"]
-        try:
-            if "CUDAExecutionProvider" in set(ort.get_available_providers()):
-                providers.insert(0, "CUDAExecutionProvider")
-        except Exception:
-            pass
-
-        self.session = InferenceSession(str(onnx_path), providers=providers)
+        self.session = _create_onnx_session(onnx_path)
         self.input_name = self.session.get_inputs()[0].name
         self.out_name = self.session.get_outputs()[0].name
 
@@ -271,8 +272,6 @@ class E621Tagger:
             raise FileNotFoundError(f"E621 folder not found: {self.model_dir}")
 
         import csv
-        import onnxruntime as ort
-        from onnxruntime import InferenceSession
 
         onnx_path = self.model_dir / "model.onnx"
         if not onnx_path.exists():
@@ -285,14 +284,7 @@ class E621Tagger:
         if not csv_path.exists():
             raise FileNotFoundError(f"selected_tags.csv not found in {self.model_dir}")
 
-        providers = ["CPUExecutionProvider"]
-        try:
-            if "CUDAExecutionProvider" in set(ort.get_available_providers()):
-                providers.insert(0, "CUDAExecutionProvider")
-        except Exception:
-            pass
-
-        self.session = InferenceSession(str(onnx_path), providers=providers)
+        self.session = _create_onnx_session(onnx_path)
         self.input_name = self.session.get_inputs()[0].name
         self.out_name = self.session.get_outputs()[0].name
 
